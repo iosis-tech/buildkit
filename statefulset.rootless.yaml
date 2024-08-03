@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: buildkitd
+  name: buildkitd
+spec:
+  serviceName: buildkitd-svc
+  podManagementPolicy: Parallel
+  replicas: 3
+  selector:
+    matchLabels:
+      app: buildkitd
+  template:
+    metadata:
+      labels:
+        app: buildkitd
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/buildkitd: unconfined
+    spec:
+      containers:
+      - name: buildkitd
+        image: moby/buildkit:master-rootless
+        args:
+        - --addr
+        - unix:///run/user/1000/buildkit/buildkitd.sock
+        - --addr
+        - tcp://0.0.0.0:1234
+        - --tlscacert
+        - /certs/ca.pem
+        - --tlscert
+        - /certs/cert.pem
+        - --tlskey
+        - /certs/key.pem
+        - --oci-worker-no-process-sandbox
+        readinessProbe:
+          exec:
+            command:
+            - buildctl
+            - debug
+            - workers
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        livenessProbe:
+          exec:
+            command:
+            - buildctl
+            - debug
+            - workers
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        securityContext:
+          seccompProfile:
+            type: Unconfined
+          runAsUser: 1000
+          runAsGroup: 1000
+        resources:
+          limits:
+            memory: "20Gi"
+            cpu: "10"
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+        ports:
+        - containerPort: 1234
+        volumeMounts:
+        - name: certs
+          readOnly: true
+          mountPath: /certs
+        - name: buildkitd
+          mountPath: /home/user/.local/share/buildkit
+        - name: buildkit-storage
+          mountPath: /var/lib/buildkit
+      volumes:
+      - name: certs
+        projected:
+          sources:
+          - secret:
+              name: buildkit-daemon-cert-secret
+              items:
+              - key: tls.crt
+                path: cert.pem
+              - key: tls.key
+                path: key.pem
+              - key: ca.crt
+                path: ca.pem
+      - name: buildkitd
+        emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: buildkit-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 100Gi
+      storageClassName: topolvm-provisioner
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd-svc
+  annotations:
+    kube-vip.io/loadbalancerIPs: "0.0.0.0"
+    kube-vip.io/hwaddr: "00:00:6C:32:98:90"
+    kube-vip.io/loadbalancerHostname: "buildkit-cluster"
+spec:
+  ports:
+  - port: 30500
+    targetPort: 1234
+    protocol: TCP
+    name: buildkit-port
+  selector:
+    app: buildkitd
+  type: LoadBalancer

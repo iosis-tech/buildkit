@@ -1,0 +1,24 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: buildkit-daemon-cert
+spec:
+  secretName: buildkit-daemon-cert-secret
+  dnsNames:
+  - buildkit.iosis.tech
+  issuerRef:
+    name: buildkit-ca-issuer
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: buildkit-client-cert
+spec:
+  secretName: buildkit-client-cert-secret
+  dnsNames:
+  - buildkit.iosis.tech
+  isCA: false
+  issuerRef:
+    name: buildkit-ca-issuer
+    kind: Issuer
